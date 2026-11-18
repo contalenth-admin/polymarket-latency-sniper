@@ -2,6 +2,7 @@ services:
   - type: web
     name: polymarket-latency-sniper
     env: node
+    region: frankfurt
     plan: free
     buildCommand: npm install
     startCommand: npm start
