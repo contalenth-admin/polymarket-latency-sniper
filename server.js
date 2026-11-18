@@ -462,7 +462,7 @@ async function evaluatePolymarketSnipe() {
                 orderIdResult = postRes?.orderID || postRes?.id || 'EXECUTED_LIMIT';
                 addLog(`⚡ [LIVE AUTO-TRADE EJECUTADO] Compra Límite de ${limitShares} shares (${side}) a $${limitPrice} en Polymarket! ID: ${orderIdResult}`, 'win');
               } catch (lErr) {
-                addLog(`❌ Error en orden Polymarket: ${mErr.message || lErr.message}`, 'warning');
+                addLog(`ℹ️ Polymarket sin liquidez con descuento $\\le$ 80¢: ${mErr.message || lErr.message}`, 'info');
               }
             }
           }
