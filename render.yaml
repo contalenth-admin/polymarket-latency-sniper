@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: polymarket-latency-sniper
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: TRADING_MODE
+        value: LIVE
+      - key: AUTO_TRADE_SIZE
+        value: "1.0"
+      - key: POLYMARKET_FUNDER_ADDRESS
+        value: 0xDa5D4Ec61710D78B6ada686946C4b0fd06FD3863
+      - key: POLYMARKET_PRIVATE_KEY
+        sync: false
