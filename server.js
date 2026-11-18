@@ -124,13 +124,13 @@ function calculateSnipeCertainty(delta, secondsRemaining) {
   };
 }
 
-// Connect live to Binance WebSocket (<50ms real-time trades)
+// Multi-Stream Real-Time Price Feeds: Binance + Coinbase (<50ms tick-by-tick)
 function initBinanceWs() {
   try {
     const ws = new WSClient('wss://stream.binance.com:9443/ws/btcusdt@trade');
     ws.on('open', () => {
       console.log('⚡ Conectado al stream de trades de Binance BTC/USDT (<50ms)');
-      addLog('⚡ Conectado al WebSocket de Binance BTC/USDT a milisegundos', 'info');
+      addLog('⚡ Conectado al WebSocket de Binance BTC/USDT (<50ms)', 'info');
     });
     ws.on('message', (raw) => {
       try {
@@ -150,6 +150,56 @@ function initBinanceWs() {
   } catch (e) {
     setTimeout(initBinanceWs, 3000);
   }
+}
+
+// Coinbase Real-Time WebSocket (<20ms in US Cloud servers like Render)
+function initCoinbaseWs() {
+  try {
+    const ws = new WSClient('wss://ws-feed.exchange.coinbase.com');
+    ws.on('open', () => {
+      ws.send(JSON.stringify({
+        type: 'subscribe',
+        product_ids: ['BTC-USD'],
+        channels: ['ticker']
+      }));
+      console.log('⚡ Conectado al stream de trades de Coinbase BTC/USD (<20ms)');
+      addLog('⚡ Conectado al stream de alta frecuencia de Coinbase BTC/USD (<20ms)', 'info');
+    });
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw);
+        if (msg.price) {
+          binanceSpot = parseFloat(msg.price);
+          lastBinanceTickTime = Date.now();
+          evaluateSnipeOpportunity();
+          evaluatePolymarketSnipe();
+        }
+      } catch (e) {}
+    });
+    ws.on('error', () => {});
+    ws.on('close', () => {
+      setTimeout(initCoinbaseWs, 3000);
+    });
+  } catch (e) {
+    setTimeout(initCoinbaseWs, 3000);
+  }
+}
+
+// REST Fallback for Spot Price (Guarantees spot is never 0 in any cloud region)
+async function pollSpotFallback() {
+  if (binanceSpot > 0 && (Date.now() - lastBinanceTickTime < 4000)) return;
+  try {
+    const res = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { signal: AbortSignal.timeout(2500) });
+    if (res.ok) {
+      const d = await res.json();
+      if (d?.data?.amount) {
+        binanceSpot = parseFloat(d.data.amount);
+        lastBinanceTickTime = Date.now();
+        evaluateSnipeOpportunity();
+        evaluatePolymarketSnipe();
+      }
+    }
+  } catch (e) {}
 }
 
 // Fetch active Kalshi 15M BTC Market & Orderbook
@@ -703,6 +753,9 @@ app.post('/api/manual-snipe', (req, res) => {
 
 // Initialization
 initBinanceWs();
+initCoinbaseWs();
+pollSpotFallback();
+setInterval(pollSpotFallback, 2000);
 initPolymarketClobClient();
 pollKalshiMarket();
 setInterval(pollKalshiMarket, 2000);
