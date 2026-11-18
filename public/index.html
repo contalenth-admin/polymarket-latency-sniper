@@ -1160,27 +1160,41 @@
       }
     }
 
-    const ws = new WebSocket(`ws://${window.location.host}`);
-    ws.onmessage = (event) => {
+    function initWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'TICK') {
-          state.binanceSpot = msg.data.binanceSpot;
-          state.kalshi = msg.data.kalshi;
-          state.poly = msg.data.poly;
-          state.analysis = msg.data.analysis;
-          state.polyAnalysis = msg.data.polyAnalysis;
-          renderHUD();
-        } else if (msg.type === 'LOG') {
-          appendLog(msg.data);
-        } else if (msg.type === 'SNIPE_FIRED' || msg.type === 'SNIPES_UPDATED') {
-          playBeep();
-          fetchStatus();
-        }
-      } catch (e) {
-        console.error(e);
+        const ws = new WebSocket(`${protocol}//${window.location.host}`);
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'TICK') {
+              state.binanceSpot = msg.data.binanceSpot;
+              state.kalshi = msg.data.kalshi;
+              state.poly = msg.data.poly;
+              state.analysis = msg.data.analysis;
+              state.polyAnalysis = msg.data.polyAnalysis;
+              renderHUD();
+            } else if (msg.type === 'LOG') {
+              appendLog(msg.data);
+            } else if (msg.type === 'SNIPE_FIRED' || msg.type === 'SNIPES_UPDATED') {
+              playBeep();
+              fetchStatus();
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        };
+        ws.onclose = () => {
+          setTimeout(initWebSocket, 3000);
+        };
+        ws.onerror = () => {
+          try { ws.close(); } catch(e) {}
+        };
+      } catch (err) {
+        setTimeout(initWebSocket, 3000);
       }
-    };
+    }
+    initWebSocket();
 
     async function fetchStatus() {
       try {
