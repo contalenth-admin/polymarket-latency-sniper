@@ -8,6 +8,17 @@ const { createSecureClient } = require('@polymarket/client');
 const { privateKeyToAccount } = require('viem/accounts');
 const { Wallet } = require('ethers');
 
+// Optional proxy dispatcher for regions requiring non-geoblocked routing
+if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
+  try {
+    const { EnvHttpProxyAgent, setGlobalDispatcher } = require('undici');
+    setGlobalDispatcher(new EnvHttpProxyAgent());
+    console.log(`🌐 Proxy activo configurado para Polymarket: ${process.env.HTTPS_PROXY || process.env.HTTP_PROXY}`);
+  } catch (e) {
+    console.warn('⚠️ No se pudo inicializar EnvHttpProxyAgent:', e.message);
+  }
+}
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -399,18 +410,18 @@ async function evaluatePolymarketSnipe() {
   const secs = polyMarket.secondsLeft;
   const analysis = calculateSnipeCertainty(delta, secs);
 
-  // Strict high-conviction thresholds (avoids late candle noise):
-  const minDelta = secs <= 60 ? 25.0 : (secs <= 120 ? 35.0 : 45.0);
-  const minCertainty = 97.0;
+  // Adaptive entry thresholds: allows entering earlier (last 4 min) before contracts get overpriced
+  const minDelta = secs <= 60 ? 15.0 : (secs <= 120 ? 20.0 : (secs <= 240 ? 25.0 : 35.0));
+  const minCertainty = 94.0;
 
-  if (secs <= 180 && secs >= 5 && analysis.certainty >= minCertainty && Math.abs(delta) >= minDelta) {
+  if (secs <= 240 && secs >= 5 && analysis.certainty >= minCertainty && Math.abs(delta) >= minDelta) {
     const side = analysis.favoredSide === 'YES' ? 'UP' : 'DOWN';
     const askPrice = side === 'UP' ? polyMarket.upAsk : polyMarket.downAsk;
 
     const candleId = `POLY-${polyMarket.slug}`;
     if (activePolySnipeLock === candleId) return;
 
-    if (askPrice > 0 && askPrice <= 0.80) {
+    if (askPrice > 0 && askPrice <= 0.85) {
       // SYNCHRONOUS MUTEX LOCK: Lock instantly before any async await to prevent concurrent ticks
       activePolySnipeLock = candleId;
       isExecutingPolyOrder = true;
@@ -446,9 +457,9 @@ async function evaluatePolymarketSnipe() {
               orderIdResult = postRes?.orderID || postRes?.id || 'EXECUTED_MARKET';
               addLog(`⚡ [LIVE AUTO-TRADE EJECUTADO] Compra Market de $${capitalToUse} USDC (${side}) en Polymarket! ID: ${orderIdResult}`, 'win');
             } catch (mErr) {
-              // Attempt 2: Marketable Limit Order (sweeps resting asks up to 80¢ with tolerance)
+              // Attempt 2: Marketable Limit Order (sweeps resting asks up to 85¢ with tolerance)
               try {
-                const limitPrice = parseFloat(Math.min(0.80, askPrice + 0.02).toFixed(2));
+                const limitPrice = parseFloat(Math.min(0.85, askPrice + 0.02).toFixed(2));
                 const limitShares = Math.max(1, Math.round(capitalToUse / limitPrice));
                 const limitOrder = await polymarketClient.createLimitOrder({
                   tokenId: targetTokenId,
@@ -462,7 +473,7 @@ async function evaluatePolymarketSnipe() {
                 orderIdResult = postRes?.orderID || postRes?.id || 'EXECUTED_LIMIT';
                 addLog(`⚡ [LIVE AUTO-TRADE EJECUTADO] Compra Límite de ${limitShares} shares (${side}) a $${limitPrice} en Polymarket! ID: ${orderIdResult}`, 'win');
               } catch (lErr) {
-                addLog(`ℹ️ Polymarket sin liquidez con descuento $\\le$ 80¢: ${mErr.message || lErr.message}`, 'info');
+                addLog(`ℹ️ Polymarket sin liquidez con descuento $\\le$ 85¢: ${mErr.message || lErr.message}`, 'info');
               }
             }
           }
@@ -504,10 +515,10 @@ async function evaluatePolymarketSnipe() {
       } finally {
         isExecutingPolyOrder = false;
       }
-    } else if (askPrice > 0.80) {
+    } else if (askPrice > 0.85) {
       if (activePolySnipeLock !== `${candleId}-EXPENSIVE`) {
         activePolySnipeLock = `${candleId}-EXPENSIVE`;
-        addLog(`🛡️ [ESCUDO DE SEGURIDAD] Certeza alta (${analysis.certainty}%), pero el contrato ya está a ${(askPrice * 100).toFixed(0)}¢ (> 80¢). Se bloquea la compra para proteger margen de ganancia.`, 'warning');
+        addLog(`🛡️ [ESCUDO DE SEGURIDAD] Certeza alta (${analysis.certainty}%), pero el contrato ya está a ${(askPrice * 100).toFixed(0)}¢ (> 85¢). Se bloquea la compra para proteger margen de ganancia.`, 'warning');
       }
     }
   }
